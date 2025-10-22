@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>あにまん掲示板 過去ログ検索 (期間フィルター付き)</title>
+    <!-- Tailwind CSS CDNの読み込み -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* カスタムフォントと基本設定 */
+        :root {
+            --animan-main: #3b82f6; /* Blue-500 */
+            --bg-color: #f3f4f6; /* Gray-100 */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+        }
+        .search-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="search-container">
+        <!-- ヘッダー -->
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-extrabold text-gray-800 mb-2">あにまん過去ログ検索 (Google連携)</h1>
+            <p class="text-gray-600">キーワードと期間を入力して、Googleのサイト内検索結果ページへ直接ジャンプします。</p>
+        </header>
+
+        <!-- 検索フォーム -->
+        <div class="bg-white p-6 rounded-xl shadow-lg mb-8">
+            <div class="flex flex-col gap-4">
+                <!-- 1行目: キーワード入力と検索ボタン -->
+                <div class="flex flex-col sm:flex-row gap-4 items-stretch">
+                    <!-- 検索キーワード入力 -->
+                    <input type="text" id="searchInput" placeholder="検索キーワードを入力（例：トレーナー、鬼滅、考察）"
+                           class="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                    
+                    <!-- 検索ボタン -->
+                    <button id="searchButton"
+                            class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition duration-150 ease-in-out shadow-md flex items-center justify-center sm:min-w-[150px]">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+                        </svg>
+                        <span class="ml-2">Googleで検索</span>
+                    </button>
+                </div>
+
+                <!-- 2行目: 期間フィルター -->
+                <div class="flex items-center gap-2">
+                    <label for="timePeriod" class="text-gray-600 text-sm font-medium whitespace-nowrap">投稿期間:</label>
+                    <select id="timePeriod"
+                            class="p-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition duration-150 text-sm">
+                        <option value="">期間指定なし (関連度の高い順)</option>
+                        <option value="y">過去1年以内</option>
+                        <option value="m">過去1ヶ月以内</option>
+                    </select>
+                </div>
+            </div>
+
+            <p id="statusMessage" class="mt-3 text-sm text-red-500 hidden">検索キーワードを入力してください。</p>
+            <p class="text-xs text-gray-400 mt-2">検索ボタンを押すと、Google検索の結果ページへ移動します。</p>
+        </div>
+
+        <!-- 検索結果表示エリア -->
+        <div id="resultsContainer" class="space-y-4">
+            <p class="text-center text-gray-500 mt-10" id="initialMessage">検索キーワードと期間を選択して、あにまん掲示板の過去ログを探してみましょう。</p>
+        </div>
+        
+        <!-- エラー・ステータス表示用モーダル (alertCustomの代替) -->
+        <div id="customModal" class="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center p-4 z-50 hidden">
+            <div class="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full transform transition-all duration-300 scale-100">
+                <h3 id="modalTitle" class="text-xl font-bold text-blue-600 mb-3"></h3>
+                <p id="modalMessage" class="text-gray-700"></p>
+                <div class="mt-4 flex justify-end">
+                    <button id="closeModalButton" class="bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition duration-150">
+                        閉じる
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SEARCH_TARGET_SITE = "site:bbs.animanch.com";
+        const GOOGLE_SEARCH_BASE_URL = "https://www.google.com/search?q=";
+
+        const searchInput = document.getElementById('searchInput');
+        const searchButton = document.getElementById('searchButton');
+        const timePeriodSelect = document.getElementById('timePeriod'); // NEW: 期間選択
+        const statusMessage = document.getElementById('statusMessage');
+        const initialMessage = document.getElementById('initialMessage');
+
+        /**
+         * カスタムアラートボックスの表示
+         */
+        function alertCustom(title, message) {
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalMessage').textContent = message;
+            document.getElementById('customModal').classList.remove('hidden');
+
+            document.getElementById('closeModalButton').onclick = () => {
+                document.getElementById('customModal').classList.add('hidden');
+            };
+        }
+
+        /**
+         * Google検索ページへ直接リダイレクトする（期間フィルターを適用）
+         */
+        function performExternalSearch() {
+            const query = searchInput.value.trim();
+            const timePeriod = timePeriodSelect.value;
+            statusMessage.classList.add('hidden');
+            
+            if (query.length === 0) {
+                statusMessage.textContent = '検索キーワードを入力してください。';
+                statusMessage.classList.remove('hidden');
+                return;
+            }
+
+            // 1. 基本となるクエリを構築 (サイト内検索)
+            const fullQuery = `${query} ${SEARCH_TARGET_SITE}`;
+            let googleSearchUrl = `${GOOGLE_SEARCH_BASE_URL}${encodeURIComponent(fullQuery)}`;
+            
+            // 2. 期間フィルターのパラメータを追加
+            // Google検索の期間指定パラメータは 'tbs=qdr:[d/w/m/y]' です
+            if (timePeriod) {
+                googleSearchUrl += `&tbs=qdr:${timePeriod}`;
+            }
+
+            // 3. 新しいタブで開く
+            window.open(googleSearchUrl, '_blank');
+        }
+
+
+        // イベントリスナーの設定
+        searchButton.addEventListener('click', performExternalSearch);
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                performExternalSearch();
+            }
+        });
+
+        // ページロード時の初期メッセージ表示
+        window.onload = () => {
+            document.getElementById('resultsContainer').innerHTML = '';
+            document.getElementById('resultsContainer').appendChild(initialMessage);
+        };
+
+    </script>
+</body>
+</html>
